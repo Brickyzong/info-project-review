@@ -1,0 +1,111 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: xmps-ai-review
+
+  # ============================================================
+  # 数据库配置（默认 H2 开发测试；生产切换 PostgreSQL）
+  # ============================================================
+  # --- dev profile (default) ---
+  datasource:
+    url: jdbc:h2:file:./data/xmps;AUTO_SERVER=TRUE;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # 文件上传限制
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+# ============================================================
+# LLM 配置（自研轻量封装，OpenAI 兼容协议）
+# ============================================================
+xmps:
+  llm:
+    provider: openai-compatible
+    base-url: https://api.deepseek.com/v1
+    api-key: ${LLM_API_KEY:sk-a0350899154d4d7397eb574c5aa93e1f}
+    model: deepseek-chat
+    timeout-seconds: 120
+    max-retries: 3
+    # 连接池配置
+    pool:
+      max-connections: 10
+      max-idle: 5
+      keep-alive-minutes: 5
+
+  # ============================================================
+  # API 鉴权
+  # ============================================================
+  security:
+    api-key:
+      header: X-API-Key
+      # 生产环境通过环境变量或外部密钥管理服务注入
+      keys: ${XMPS_API_KEYS:test-key-001,test-key-002}
+
+  # ============================================================
+  # 异步任务配置
+  # ============================================================
+  async:
+    core-pool-size: 4
+    max-pool-size: 8
+    queue-capacity: 100
+    thread-name-prefix: xmps-async-
+
+  # ============================================================
+  # 回调重试
+  # ============================================================
+  callback:
+    max-retries: 5
+    retry-interval-seconds: 60
+    initial-delay-seconds: 5
+
+  # ============================================================
+  # 向量化预留（一期空实现）
+  # ============================================================
+  vector:
+    enabled: false
+
+# ============================================================
+# Actuator 健康检查
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# ============================================================
+# 日志
+# ============================================================
+logging:
+  level:
+    root: INFO
+    com.xmps: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/xmps-ai-review.log

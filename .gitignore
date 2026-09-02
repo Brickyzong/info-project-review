@@ -1,0 +1,18 @@
+# java maven
+target/
+*.class
+
+# 日志
+logs/
+*.log
+
+# 上传缓存
+uploads/
+
+# 本地工具缓存
+.claude/
+{{HOMEBRew_PREFIX}}/
+
+# 系统文件
+.DS_Store
+Thumbs.db
