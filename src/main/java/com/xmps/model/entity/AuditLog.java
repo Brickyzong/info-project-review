@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -12,7 +12,7 @@ import java.util.UUID;
  * 审计日志——全程留痕，确保可追溯
  */
 @Entity
-@Table(name = "audit_log", indexes = {
+@Table(name = "audit_logs", indexes = {
         @Index(name = "idx_audit_task", columnList = "taskId"),
         @Index(name = "idx_audit_time", columnList = "timestamp"),
         @Index(name = "idx_audit_action", columnList = "action")
@@ -36,7 +36,7 @@ public class AuditLog {
     private String taskId;
 
     /**
-     * 操作：UPLOAD / PARSE_DOC / CLASSIFY / DEDUP / REVIEW / GENERATE_REPORT / CALLBACK / ERROR
+     * 操作：FILE_SAVE / PARSE_DOC / CLASSIFY / DEDUP / REVIEW / COMPLETE / CANCEL / ERROR
      */
     @Column(length = 50, nullable = false)
     private String action;
@@ -54,6 +54,18 @@ public class AuditLog {
     private String clientIp;
 
     /**
+     * 请求追踪/幂等 ID（X-Request-ID 或 request_id）
+     */
+    @Column(length = 64)
+    private String requestId;
+
+    /**
+     * 调用方 User-Agent
+     */
+    @Column(length = 200)
+    private String userAgent;
+
+    /**
      * 耗时（毫秒）
      */
     @Column
@@ -66,9 +78,9 @@ public class AuditLog {
     @Builder.Default
     private boolean success = true;
 
-    @CreationTimestamp
     @Column(updatable = false)
-    private LocalDateTime timestamp;
+    @Builder.Default
+    private Instant timestamp = Instant.now();
 
     @Override
     public boolean equals(Object o) {

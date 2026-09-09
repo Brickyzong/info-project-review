@@ -25,4 +25,14 @@ public interface ReviewTaskRepository extends JpaRepository<ReviewTask, String> 
      * 查某个任务（带乐观锁——业务层自行处理并发）
      */
     Optional<ReviewTask> findById(String id);
+
+    /**
+     * 按幂等键查询（防重复提交）
+     */
+    Optional<ReviewTask> findByRequestId(String requestId);
+
+    /**
+     * 统计当日已生成的任务数，用于生成 rev_YYYYMMDD_NNN 序号
+     */
+    long countByIdStartingWith(String prefix);
 }

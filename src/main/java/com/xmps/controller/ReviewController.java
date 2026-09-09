@@ -14,10 +14,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * 评审接口——核心业务入口。
- * 四接口：submit / status / result / health
+ * 评审接口——核心业务入口（对齐技术方案文档契约）。
+ * 提交 / 查询（含进度与报告）/ 取消 三个接口。
  */
 @RestController
 @RequestMapping("/api/v1/review")
@@ -34,64 +35,85 @@ public class ReviewController {
     }
 
     /**
-     * POST /api/v1/review/submit
+     * POST /api/v1/review/tasks
      * 提交方案文档，异步启动评审流水线，立即返回 taskId。
      *
      * 请求格式：multipart/form-data
-     *   - file: 方案文档 (.docx/.doc/.pdf, ≤50MB)
-     *   - callbackUrl: 评审完成后回调的 URL
+     *   - file:          方案文档 (.docx/.doc/.pdf, ≤50MB)  必填
+     *   - project_name:  项目名称                              必填
+     *   - project_type:  项目类型（可选，提示用）
+     *   - callback_url:  评审完成回调地址（可选）
+     *   - request_id:    幂等键（可选，重复提交返回原任务）
      */
-    @PostMapping(value = "/submit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/tasks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<Map<String, String>> submit(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("callbackUrl") String callbackUrl,
+            @RequestParam("project_name") String projectName,
+            @RequestParam(value = "project_type", required = false) String projectType,
+            @RequestParam(value = "callback_url", required = false) String callbackUrl,
+            @RequestParam(value = "request_id", required = false) String requestId,
             HttpServletRequest request
     ) {
         // ---- 基础校验 ----
         if (file.isEmpty()) {
             return ApiResponse.fail(400, "文件不能为空");
         }
-
         String filename = file.getOriginalFilename();
         if (filename == null || filename.isBlank()) {
             return ApiResponse.fail(400, "文件名不能为空");
         }
-
         String lower = filename.toLowerCase();
         if (!(lower.endsWith(".docx") || lower.endsWith(".doc") || lower.endsWith(".pdf"))) {
             return ApiResponse.fail(400, "仅支持 .docx / .doc / .pdf 格式");
         }
+        if (projectName == null || projectName.isBlank()) {
+            return ApiResponse.fail(400, "project_name 不能为空");
+        }
 
-        if (callbackUrl == null || callbackUrl.isBlank()) {
-            return ApiResponse.fail(400, "callbackUrl 不能为空");
+        // ---- 幂等：request_id 已存在则返回原任务 ----
+        if (requestId != null && !requestId.isBlank()) {
+            Optional<ReviewTask> existing = taskRepository.findByRequestId(requestId);
+            if (existing.isPresent()) {
+                return ApiResponse.ok(Map.of("taskId", existing.get().getId(), "requestId", requestId));
+            }
         }
 
         // ---- 创建任务记录 ----
+        String taskId = reviewService.generateTaskId();
         ReviewTask task = ReviewTask.builder()
+                .id(taskId)
+                .projectName(projectName)
                 .originalFilename(filename)
                 .fileType(file.getContentType())
                 .fileSize(file.getSize())
+                .projectSubtype(projectType)
                 .callbackUrl(callbackUrl)
-                .status(TaskStatus.PENDING)
+                .requestId(requestId)
+                .status(TaskStatus.QUEUED)
                 .build();
 
         task = taskRepository.save(task);
-        log.info("评审任务已创建 — taskId={}, filename={}, size={}B", task.getId(), filename, file.getSize());
+        log.info("评审任务已创建 — taskId={}, filename={}, size={}B", taskId, filename, file.getSize());
 
         // ---- 异步触发评审流水线 ----
         String clientIp = getClientIp(request);
-        reviewService.executeAsync(task, file, clientIp);
+        String reqId = (requestId != null && !requestId.isBlank()) ? requestId : request.getHeader("X-Request-ID");
+        reviewService.executeAsync(task, file, clientIp, reqId);
 
-        return ApiResponse.ok(Map.of("taskId", task.getId()));
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("taskId", taskId);
+        if (requestId != null) {
+            data.put("requestId", requestId);
+        }
+        return ApiResponse.ok(data);
     }
 
     /**
-     * GET /api/v1/review/status/{taskId}
-     * 查询评审状态（对方平台轮询）。
-     * 返回当前状态、进度描述，若已完成则包含完整报告。
+     * GET /api/v1/review/tasks/{id}
+     * 查询任务状态、进度（progress）与（完成时）完整报告。
      */
-    @GetMapping("/status/{taskId}")
-    public ApiResponse<Map<String, Object>> status(@PathVariable String taskId) {
+    @GetMapping("/tasks/{taskId}")
+    public ApiResponse<Map<String, Object>> getTask(@PathVariable String taskId) {
         ReviewTask task = taskRepository.findById(taskId).orElse(null);
         if (task == null) {
             return ApiResponse.fail(404, "任务不存在: " + taskId);
@@ -101,50 +123,44 @@ public class ReviewController {
         data.put("taskId", task.getId());
         data.put("status", task.getStatus().name());
         data.put("statusLabel", task.getStatus().getLabel());
+        data.put("projectName", task.getProjectName());
         data.put("projectType", task.getProjectType() != null ? task.getProjectType().name() : null);
-        data.put("hasDuplicate", task.getHasDuplicate() != null ? task.getHasDuplicate() : null);
+        data.put("hasDuplicate", task.getHasDuplicate());
         data.put("statusMessage", task.getStatusMessage() != null ? task.getStatusMessage() : "");
-        data.put("originalFilename", task.getOriginalFilename());
+        data.put("progress", Map.of(
+                "step", task.getProgressStep() != null ? task.getProgressStep() : "",
+                "current", task.getProgressCurrent(),
+                "total", task.getProgressTotal()
+        ));
+        data.put("createdAt", task.getCreatedAt() != null ? task.getCreatedAt().toString() : null);
 
-        // 已完成 → 附带完整报告
-        if (task.getStatus() == TaskStatus.COMPLETED && task.getReportJson() != null) {
-            data.put("report", task.getReportJson());
+        if (task.getStatus() == TaskStatus.COMPLETED) {
+            data.put("completedAt", task.getCompletedAt() != null ? task.getCompletedAt().toString() : null);
+            data.put("durationSeconds", task.getDurationSeconds());
+            data.put("report", task.getResultJson() != null ? task.getResultJson() : "{}");
         }
-
-        // 失败 → 附带错误信息
         if (task.getStatus() == TaskStatus.FAILED) {
-            data.put("error", task.getStatusMessage());
+            data.put("error", task.getErrorMessage() != null ? task.getErrorMessage() : task.getStatusMessage());
         }
-
+        data.put("requestId", task.getRequestId());
         return ApiResponse.ok(data);
     }
 
     /**
-     * GET /api/v1/review/result/{taskId}
-     * 获取完整评审结果（仅当评审已完成）。
+     * POST /api/v1/review/tasks/{id}/cancel
+     * 取消进行中的任务（终态不可取消）。
      */
-    @GetMapping("/result/{taskId}")
-    public ApiResponse<Map<String, Object>> result(@PathVariable String taskId) {
+    @PostMapping("/tasks/{taskId}/cancel")
+    public ApiResponse<Map<String, String>> cancel(@PathVariable String taskId, HttpServletRequest request) {
         ReviewTask task = taskRepository.findById(taskId).orElse(null);
         if (task == null) {
             return ApiResponse.fail(404, "任务不存在: " + taskId);
         }
-        if (task.getStatus() == TaskStatus.FAILED) {
-            return ApiResponse.fail(500, "评审失败: " + task.getStatusMessage());
+        if (task.getStatus() == TaskStatus.COMPLETED || task.getStatus() == TaskStatus.FAILED) {
+            return ApiResponse.fail(409, "任务已终态，无法取消: " + task.getStatus().getLabel());
         }
-        if (task.getStatus() != TaskStatus.COMPLETED) {
-            return ApiResponse.fail(400, "评审尚未完成，当前状态: " + task.getStatus().getLabel());
-        }
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("taskId", task.getId());
-        data.put("status", task.getStatus().name());
-        data.put("projectType", task.getProjectType() != null ? task.getProjectType().name() : null);
-        data.put("hasDuplicate", task.getHasDuplicate());
-        data.put("dedupDetail", task.getDedupDetail() != null ? task.getDedupDetail() : "");
-        data.put("report", task.getReportJson() != null ? task.getReportJson() : "{}");
-
-        return ApiResponse.ok(data);
+        reviewService.cancel(task, getClientIp(request), request.getHeader("X-Request-ID"));
+        return ApiResponse.ok(Map.of("taskId", taskId, "status", "CANCELLED"));
     }
 
     // ---- helper ----

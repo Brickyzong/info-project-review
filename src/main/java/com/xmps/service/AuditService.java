@@ -24,6 +24,10 @@ public class AuditService {
      * 写入一条审计日志
      */
     public void log(String taskId, String action, String detail, boolean success, Long durationMs, String clientIp) {
+        log(taskId, action, detail, success, durationMs, clientIp, null);
+    }
+
+    public void log(String taskId, String action, String detail, boolean success, Long durationMs, String clientIp, String requestId) {
         try {
             AuditLog entry = AuditLog.builder()
                     .taskId(taskId)
@@ -32,6 +36,7 @@ public class AuditService {
                     .success(success)
                     .durationMs(durationMs)
                     .clientIp(clientIp)
+                    .requestId(requestId)
                     .build();
             auditLogRepository.save(entry);
         } catch (Exception e) {
@@ -41,7 +46,7 @@ public class AuditService {
     }
 
     public void log(String taskId, String action, String detail, boolean success) {
-        log(taskId, action, detail, success, null, null);
+        log(taskId, action, detail, success, null, null, null);
     }
 
     /**

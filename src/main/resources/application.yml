@@ -57,7 +57,7 @@ xmps:
   # ============================================================
   security:
     api-key:
-      header: X-API-Key
+      header: Authorization
       # 生产环境通过环境变量或外部密钥管理服务注入
       keys: ${XMPS_API_KEYS:test-key-001,test-key-002}
 
@@ -74,9 +74,9 @@ xmps:
   # 回调重试
   # ============================================================
   callback:
-    max-retries: 5
-    retry-interval-seconds: 60
-    initial-delay-seconds: 5
+    max-retries: 3
+    retry-intervals: 10,30,60
+    initial-delay-seconds: 2
 
   # ============================================================
   # 向量化预留（一期空实现）

@@ -43,13 +43,19 @@ public class ApiKeyFilter implements Filter {
             return;
         }
 
-        String apiKey = req.getHeader(headerName);
-        if (apiKey == null || apiKey.isBlank()) {
-            log.warn("缺少 API Key — path={}, ip={}", path, req.getRemoteAddr());
+        String authHeader = req.getHeader(headerName);
+        if (authHeader == null || authHeader.isBlank()) {
+            log.warn("缺少 Authorization 头 — path={}, ip={}", path, req.getRemoteAddr());
             res.setStatus(401);
             res.setContentType("application/json;charset=UTF-8");
-            res.getWriter().write("{\"code\":401,\"message\":\"缺少 API Key，请在 X-API-Key 请求头中提供\"}");
+            res.getWriter().write("{\"code\":401,\"message\":\"缺少 Authorization 头，格式：Authorization: Bearer {api_key}\"}");
             return;
+        }
+
+        // 支持 "Bearer <key>" 或直接 "<key>"
+        String apiKey = authHeader;
+        if (apiKey.toLowerCase().startsWith("bearer ")) {
+            apiKey = apiKey.substring(7).trim();
         }
 
         if (!validKeys.contains(apiKey)) {

@@ -10,9 +10,9 @@ import lombok.Setter;
 @Setter
 public class ApiKeyProperties {
     /**
-     * HTTP 请求头名称
+     * HTTP 请求头名称（技术方案文档要求 Authorization: Bearer {api_key}）
      */
-    private String header = "X-API-Key";
+    private String header = "Authorization";
     /**
      * 有效 Key 列表（逗号分隔）
      */

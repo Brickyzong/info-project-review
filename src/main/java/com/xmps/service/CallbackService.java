@@ -12,7 +12,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -47,43 +50,47 @@ public class CallbackService {
         // 初始延迟
         sleepSeconds(properties.getInitialDelaySeconds());
 
-        for (int attempt = 1; attempt <= properties.getMaxRetries(); attempt++) {
+        int maxRetries = properties.getMaxRetries();
+        List<Integer> intervals = properties.getRetryIntervals();
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 log.info("回调尝试 {}/{} — taskId={}, url={}",
-                        attempt, properties.getMaxRetries(), task.getId(), task.getCallbackUrl());
+                        attempt, maxRetries, task.getId(), task.getCallbackUrl());
 
                 Map<String, Object> payload = buildPayload(task);
 
-                String response = restClient.post()
+                restClient.post()
                         .uri(task.getCallbackUrl())
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(objectMapper.writeValueAsString(payload))
                         .retrieve()
                         .body(String.class);
 
-                log.info("回调成功 — taskId={}, response={}", task.getId(), response);
+                log.info("回调成功 — taskId={}", task.getId());
 
-                task.setCallbackRetries(attempt);
+                task.setRetryCount(attempt);
                 taskRepository.save(task);
                 return; // 成功，退出
 
             } catch (Exception e) {
                 log.warn("回调失败 {}/{} — taskId={}, error={}",
-                        attempt, properties.getMaxRetries(), task.getId(), e.getMessage());
+                        attempt, maxRetries, task.getId(), e.getMessage());
 
-                task.setCallbackRetries(attempt);
+                task.setRetryCount(attempt);
                 taskRepository.save(task);
 
-                if (attempt < properties.getMaxRetries()) {
-                    log.info("回调将在 {} 秒后重试 — taskId={}",
-                            properties.getRetryIntervalSeconds(), task.getId());
-                    sleepSeconds(properties.getRetryIntervalSeconds());
+                if (attempt < maxRetries) {
+                    int wait = intervals != null && !intervals.isEmpty()
+                            ? intervals.get(Math.min(attempt - 1, intervals.size() - 1))
+                            : 60;
+                    log.info("回调将在 {} 秒后重试 — taskId={}", wait, task.getId());
+                    sleepSeconds(wait);
                 }
             }
         }
 
-        log.error("回调最终失败 — taskId={}, 已重试 {} 次",
-                task.getId(), properties.getMaxRetries());
+        log.error("回调最终失败 — taskId={}, 已重试 {} 次", task.getId(), maxRetries);
         // 回调失败不改变任务状态（评审已完成），只记录日志供运维排查
     }
 
@@ -91,15 +98,17 @@ public class CallbackService {
      * 构造回调请求体
      */
     private Map<String, Object> buildPayload(ReviewTask task) {
-        return Map.of(
-                "taskId", task.getId(),
-                "status", task.getStatus().name(),
-                "statusLabel", task.getStatus().getLabel(),
-                "projectType", task.getProjectType() != null ? task.getProjectType().name() : null,
-                "hasDuplicate", task.getHasDuplicate() != null ? task.getHasDuplicate() : false,
-                "report", task.getReportJson() != null ? task.getReportJson() : "{}",
-                "completedAt", LocalDateTime.now().toString()
-        );
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getId());
+        payload.put("status", task.getStatus().name());
+        payload.put("statusLabel", task.getStatus().getLabel());
+        payload.put("projectType", task.getProjectType() != null ? task.getProjectType().name() : null);
+        payload.put("hasDuplicate", task.getHasDuplicate() != null ? task.getHasDuplicate() : false);
+        payload.put("report", task.getResultJson() != null ? task.getResultJson() : "{}");
+        payload.put("completed_at", task.getCompletedAt() != null
+                ? DateTimeFormatter.ISO_INSTANT.format(task.getCompletedAt())
+                : Instant.now().toString());
+        return payload;
     }
 
     private void sleepSeconds(int seconds) {
