@@ -1,7 +1,10 @@
 package com.xmps.service;
 
-import com.xmps.model.entity.ReviewTask;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xmps.llm.LlmClient;
 import com.xmps.model.ReviewItem;
+import com.xmps.model.entity.ReviewTask;
 import com.xmps.model.enums.ProjectType;
 import com.xmps.model.enums.ReviewVerdict;
 import com.xmps.model.enums.TaskStatus;
@@ -16,7 +19,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 评审流水线编排——异步执行完整评审流程（对齐技术方案文档契约）。
@@ -25,11 +30,11 @@ import java.util.List;
  * 流水线步骤（progress.total = 5）：
  *   1. 保存文件       → PARSING
  *   2. 文档解析       → PARSING
- *   3. 类型判别       → PARSING
+ *   3. 类型判别       → PARSING（LLM 语义判别，失败降级关键词）
  *   4. 判重           → PARSING
- *   5. 规则审查       → REVIEWING
+ *   5. 规则审查       → REVIEWING（LLM 审查 + 确定性二次校验）
  *   6. 报告生成       → REVIEWING
- *   完成 / 失败 / 取消 → COMPLETED / FAILED / CANCELLED
+ *   完成 / 失败 / 取消 → COMPLETED / FAILED / CANCELLED（终态均清理上传文件）
  * </pre>
  */
 @Service
@@ -45,6 +50,10 @@ public class ReviewService {
     private final DedupService dedupService;
     private final ConstructionReview constructionReview;
     private final MaintenanceReview maintenanceReview;
+    private final RulesEngine rulesEngine;
+    private final LlmClient llmClient;
+    private final PromptTemplateLoader promptTemplateLoader;
+    private final ObjectMapper objectMapper;
     private final ReportService reportService;
     private final CallbackService callbackService;
     private final AuditService auditService;
@@ -55,6 +64,10 @@ public class ReviewService {
                          DedupService dedupService,
                          ConstructionReview constructionReview,
                          MaintenanceReview maintenanceReview,
+                         RulesEngine rulesEngine,
+                         LlmClient llmClient,
+                         PromptTemplateLoader promptTemplateLoader,
+                         ObjectMapper objectMapper,
                          ReportService reportService,
                          CallbackService callbackService,
                          AuditService auditService) {
@@ -64,6 +77,10 @@ public class ReviewService {
         this.dedupService = dedupService;
         this.constructionReview = constructionReview;
         this.maintenanceReview = maintenanceReview;
+        this.rulesEngine = rulesEngine;
+        this.llmClient = llmClient;
+        this.promptTemplateLoader = promptTemplateLoader;
+        this.objectMapper = objectMapper;
         this.reportService = reportService;
         this.callbackService = callbackService;
         this.auditService = auditService;
@@ -115,7 +132,7 @@ public class ReviewService {
             }
 
             // ============================================================
-            // Step 3: 类型判别
+            // Step 3: 类型判别（LLM 语义判别，失败降级关键词）
             // ============================================================
             if (isCancelled(task)) return;
             updateStatus(task, TaskStatus.PARSING, "正在判别项目类型...", 2, TOTAL_STEPS);
@@ -147,6 +164,7 @@ public class ReviewService {
                 task.setResultJson(reportJson);
                 taskRepository.save(task);
                 callbackService.callbackAsync(task);
+                cleanupFiles(task);
                 return;
             }
 
@@ -171,6 +189,23 @@ public class ReviewService {
                         "审查异常: " + e.getMessage(), false, null, clientIp, requestId);
             }
 
+            // ---- 独立规则引擎：确定性二次校验（不调用 LLM，仅追加发现）----
+            try {
+                List<ReviewItem> deterministicItems = rulesEngine.check(documentText, task);
+                if (!deterministicItems.isEmpty()) {
+                    List<ReviewItem> merged = new ArrayList<>(reviewItems);
+                    merged.addAll(deterministicItems);
+                    reviewItems = merged;
+                    auditService.log(task.getId(), "DETERMINISTIC_RULES",
+                            "确定性二次校验完成, 追加 items=" + deterministicItems.size(),
+                            true, null, clientIp, requestId);
+                    log.info("确定性规则引擎产出 {} 项 — taskId={}", deterministicItems.size(), task.getId());
+                }
+            } catch (Exception e) {
+                log.error("确定性规则引擎执行异常（已降级跳过）— taskId={}, error={}",
+                        task.getId(), e.getMessage(), e);
+            }
+
             // ============================================================
             // Step 6: 报告生成 (M5 — ReportService)
             // ============================================================
@@ -182,6 +217,7 @@ public class ReviewService {
             task.setResultJson(reportJson);
             taskRepository.save(task);
             callbackService.callbackAsync(task);
+            cleanupFiles(task);
 
             log.info("评审流水线完成 — taskId={}", task.getId());
 
@@ -207,6 +243,7 @@ public class ReviewService {
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
         auditService.log(task.getId(), "CANCEL", "用户取消评审", true, null, clientIp, requestId);
+        cleanupFiles(task);
         log.info("评审任务已取消 — taskId={}", task.getId());
     }
 
@@ -237,19 +274,74 @@ public class ReviewService {
         return false;
     }
 
+    /**
+     * 项目类型判别：优先 LLM 语义判别，异常或无法识别时降级为关键词匹配。
+     */
     private void classifyProjectType(String documentText, ReviewTask task) {
-        // 先用关键词快速判别（低成本），LLM 精准分类作为 M5 增强
-        String text = documentText.toLowerCase();
-        if (text.contains("运维") || text.contains("保障服务")) {
-            task.setProjectType(ProjectType.OPERATION);
-        } else if (text.contains("续建") || text.contains("二期") || text.contains("扩建")) {
-            task.setProjectType(ProjectType.CONSTRUCTION_CONTINUE);
-        } else if (text.contains("改建") || text.contains("改造")) {
-            task.setProjectType(ProjectType.CONSTRUCTION_RENOVATE);
-        } else {
-            task.setProjectType(ProjectType.CONSTRUCTION_NEW);
-        }
+        ProjectType semantic = classifyByLlm(documentText);
+        ProjectType resolved = semantic != null ? semantic : keywordClassify(documentText);
+        task.setProjectType(resolved);
         taskRepository.save(task);
+        if (semantic == null) {
+            log.warn("类型判别降级为关键词匹配 — taskId={}", task.getId());
+        }
+    }
+
+    private ProjectType classifyByLlm(String documentText) {
+        try {
+            String system = promptTemplateLoader.render("classify-system", Map.of());
+            String user = promptTemplateLoader.render("classify-user", Map.of("DOCUMENT", documentText));
+            String resp = llmClient.chat(system, user);
+            return parseProjectType(resp);
+        } catch (Exception e) {
+            log.error("类型判别 LLM 调用失败 — error={}", e.getMessage());
+            return null;
+        }
+    }
+
+    private ProjectType parseProjectType(String resp) {
+        if (resp == null || resp.isBlank()) return null;
+        String text = resp.trim();
+        // 直接包含枚举名（容错）
+        for (ProjectType t : ProjectType.values()) {
+            if (text.contains(t.name())) return t;
+        }
+        // 尝试解析 JSON {"projectType":"CONSTRUCTION_NEW"}
+        try {
+            JsonNode node = objectMapper.readTree(text);
+            String v = node.path("projectType").asText("");
+            for (ProjectType t : ProjectType.values()) {
+                if (t.name().equalsIgnoreCase(v)) return t;
+            }
+        } catch (Exception ignored) {
+            // 非 JSON，已通过枚举名匹配尝试，返回 null
+        }
+        return null;
+    }
+
+    private ProjectType keywordClassify(String text) {
+        String t = text.toLowerCase();
+        if (t.contains("运维") || t.contains("保障服务")) {
+            return ProjectType.OPERATION;
+        } else if (t.contains("续建") || t.contains("二期") || t.contains("扩建")) {
+            return ProjectType.CONSTRUCTION_CONTINUE;
+        } else if (t.contains("改建") || t.contains("改造")) {
+            return ProjectType.CONSTRUCTION_RENOVATE;
+        } else {
+            return ProjectType.CONSTRUCTION_NEW;
+        }
+    }
+
+    /**
+     * 评审后清理上传的临时文件（防敏感文档滞留磁盘）。
+     * 仅删除本任务目录，异常仅记录日志，绝不阻断主流程。
+     */
+    private void cleanupFiles(ReviewTask task) {
+        try {
+            fileStorageService.deleteByTask(task.getId());
+        } catch (Exception e) {
+            log.warn("评审后文件清理失败（不影响主流程）— taskId={}, error={}", task.getId(), e.getMessage());
+        }
     }
 
     private void updateStatus(ReviewTask task, TaskStatus status, String message, int current, int total) {
@@ -271,5 +363,6 @@ public class ReviewService {
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
         log.error("评审任务失败 — taskId={}, reason={}", task.getId(), reason);
+        cleanupFiles(task);
     }
 }

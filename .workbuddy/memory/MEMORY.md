@@ -51,10 +51,15 @@ Java 17 + Spring Boot 3.3.1 + Spring Data JPA + Lombok
 ## 已知债（对照 C-技术方案V2.0 三/四/五/七章核对）
 **第一档 接口契约不符（①②③④⑤⑥⑦⑧）— 已完成并验证**：2026-09-03~09-09 改造，16 文件 +395/-217 行，端到端 11/11 全绿；cancel 接口一并完成。详见 `2026-09-09.md`。
 
-**第二档 待改进（12 项，未做）**，按优先级：
-- 业务实现偏差（高优先）：①独立规则引擎二次校验 ②ConstructionReview/MaintenanceReview 拆分 ③PromptTemplates 外置 ④判重历史库(M4 内置样例库) ⑤类型判别升语义理解(现降级关键词)
-- 安全加固（中优先）：⑥IP 白名单应用层 ⑦评审后文件清理 ⑧OCR(Tesseract)兜底
-- 工程化交付（阻塞）：⑨结构化《修改建议书》 ⑩Dockerfile+README+部署文档 ⑪第一档代码/测试资产 git 提交 ⑫端口随机根因(52415，已绕过未查明)
+**第二档 待改进（12 项）**，按优先级（✅=已解决）：
+- 业务实现偏差（高优先）— **全部已解决**：
+  - ①独立规则引擎二次校验 ✅（RulesEngine.java，纯确定性扫描，仅追加不覆盖 LLM 结论）
+  - ②ConstructionReview/MaintenanceReview 拆分 ✅（09-18）
+  - ③PromptTemplates 外置 ✅（resources/prompt-templates/*.txt，{{KEY}} 双花括号渲染；09-18）
+  - ④判重历史库样例数据 ✅（HistoryProjectStore 加载 history-projects.json；09-18）
+  - ⑤类型判别升语义理解 ✅（ReviewService.classifyByLlm + classify-system/user.txt，失败降级关键词；09-30）
+- 安全加固（中优先）：⑥IP 白名单应用层（未做） ⑦评审后文件清理 ✅（ReviewService.cleanupFiles 终态清理本任务目录；09-30） ⑧OCR(Tesseract)兜底（未做）
+- 工程化交付（阻塞）：⑨结构化《修改建议书》（未做） ⑩Dockerfile+README+部署文档（未做） ⑪第一档代码/测试资产 git 提交 ✅（commit 19edd7e；**第二档本次改动尚未提交**） ⑫端口随机根因(52415，已绕过未查明)
 
 注：模块地图/状态机段落已滞后（仍写 7 态机、X-API-Key、submit/status/result），属笔记描述过时，非项目债。
 
@@ -88,7 +93,9 @@ mvn.cmd -s "C:/Users/zongwenyu/.workbuddy/binaries/maven/settings.xml" test -Dte
 3. **必须设 UTF-8**：Windows 默认是 GBK，不设中文全乱码。最稳的是写进项目 `.mvn/jvm.config`（已建好），**不要依赖 `export MAVEN_OPTS`**——env 变量只在当前终端窗口有效，关掉重开就失效（用户 2026-09-03 实测踩坑：看到 GBK 就是因为 MAVEN_OPTS 没生效）。
 
 **懒人方式**：项目根 `./run-tests.sh test -Dtest=ReviewFlowIntegrationTest`（已封装以上所有细节）。
-测试真实调用 DeepSeek（yml 里配的 key 有效），完整跑一次约 30 秒 ～ 2 分钟（含 2 次 LLM 调用）。
+测试真实调用 DeepSeek（yml 里配的 key 有效），完整跑一次约 1～3 分钟（含 3 次 LLM 调用：类型判别+判重+审查）。
+
+⚠️ **判重非确定性（测试必读）**：`DedupService.analyze` 调 LLM，返回 `duplicate` 结论**非确定**——同一份测试文档曾判 `true` 也曾判 `false`。集成测试已按 `task.getHasDuplicate()` 分支处理：命中重复→流水线在判重步骤提前终止、`reviewItems=[]`（正确行为），断言只校验 `report.dedup.isDuplicate==true`；非重复跑才校验「≥5/4 审查项 + 含`确定性校验`项」。**改测试断言务必保留此分支**，否则会偶发失败（曾误报 2 处）。
 
 ## 启动服务（2026-09-04 新增，已验证跑通）
 项目根 `./run.sh`：打包 + `java -jar` 启动，默认 **8080** 端口。

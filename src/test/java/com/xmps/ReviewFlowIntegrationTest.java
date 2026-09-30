@@ -214,37 +214,58 @@ class ReviewFlowIntegrationTest {
         assertThat(report.has("completed_at")).isTrue();
         assertThat(report.has("duration_seconds")).isTrue();
 
+        boolean isDup = task.getHasDuplicate();
+        System.out.println("是否重复建设(提前终止) : " + isDup);
+
         JsonNode items = report.path("reviewItems");
         int itemCount = items.size();
         System.out.println("审查项数量 : " + itemCount);
-        if (task.getProjectType().name().startsWith("CONSTRUCTION")) {
-            assertThat(itemCount).as("建设类项目应审查 5 项").isEqualTo(5);
+
+        if (isDup) {
+            // 判重命中重复建设：流水线在判重步骤即提前终止，不进入 LLM 审查 / 确定性二次校验，
+            // reviewItems 为 0 属正确行为，跳过审查相关断言，仅校验判重结论字段。
+            assertThat(report.path("dedup").path("isDuplicate").asBoolean())
+                    .as("判重命中重复建设，报告 dedup.isDuplicate 应为 true").isTrue();
+            System.out.println("[判重命中] 流水线提前终止，审查项数=0（符合预期），跳过 LLM/确定性校验断言");
         } else {
-            assertThat(itemCount).as("运维类项目应审查 4 项").isEqualTo(4);
-        }
-
-        JsonNode summary = report.path("reviewSummary");
-        System.out.println("汇总       : 通过 " + summary.path("pass").asInt()
-                + " / 不通过 " + summary.path("fail").asInt()
-                + " / 存疑 " + summary.path("uncertain").asInt()
-                + " / 不适用 " + summary.path("notApplicable").asInt());
-        System.out.println("整体结论   : " + summary.path("overallVerdict").asText());
-        assertThat(summary.path("total").asInt()).isEqualTo(itemCount);
-        assertThat(summary.path("overallVerdict").asText()).isNotEmpty();
-
-        System.out.println("------------------------------------------");
-        for (JsonNode it : items) {
-            System.out.printf("  [%s] %s%n", it.path("conclusion").asText(), it.path("item").asText());
-            String problem = it.path("detail").asText("");
-            if (!problem.isBlank()) {
-                System.out.println("        问题: " + abbreviate(problem));
-                System.out.println("        建议: " + abbreviate(it.path("suggestion").asText("")));
+            if (task.getProjectType().name().startsWith("CONSTRUCTION")) {
+                assertThat(itemCount).as("建设类项目应至少审查 5 项(LLM)+独立规则引擎二次校验项").isGreaterThanOrEqualTo(5);
+            } else {
+                assertThat(itemCount).as("运维类项目应至少审查 4 项(LLM)+独立规则引擎二次校验项").isGreaterThanOrEqualTo(4);
             }
-        }
-        System.out.println("==========================================\n");
+            // 验证独立规则引擎（确定性二次校验）确实参与了评审
+            boolean hasDeterministic = false;
+            for (JsonNode it : items) {
+                if (it.path("item").asText().contains("确定性校验")) {
+                    hasDeterministic = true;
+                    break;
+                }
+            }
+            assertThat(hasDeterministic).as("独立规则引擎应产出确定性二次校验项(方案完整性/信创/准入门槛)").isTrue();
 
-        int flagged = summary.path("fail").asInt() + summary.path("uncertain").asInt();
-        assertThat(flagged).as("测试文档刻意埋了多处合规问题，应至少被识别出一项").isGreaterThan(0);
+            JsonNode summary = report.path("reviewSummary");
+            System.out.println("汇总       : 通过 " + summary.path("pass").asInt()
+                    + " / 不通过 " + summary.path("fail").asInt()
+                    + " / 存疑 " + summary.path("uncertain").asInt()
+                    + " / 不适用 " + summary.path("notApplicable").asInt());
+            System.out.println("整体结论   : " + summary.path("overallVerdict").asText());
+            assertThat(summary.path("total").asInt()).isEqualTo(itemCount);
+            assertThat(summary.path("overallVerdict").asText()).isNotEmpty();
+
+            System.out.println("------------------------------------------");
+            for (JsonNode it : items) {
+                System.out.printf("  [%s] %s%n", it.path("conclusion").asText(), it.path("item").asText());
+                String problem = it.path("detail").asText("");
+                if (!problem.isBlank()) {
+                    System.out.println("        问题: " + abbreviate(problem));
+                    System.out.println("        建议: " + abbreviate(it.path("suggestion").asText("")));
+                }
+            }
+            System.out.println("==========================================\n");
+
+            int flagged = summary.path("fail").asInt() + summary.path("uncertain").asInt();
+            assertThat(flagged).as("测试文档刻意埋了多处合规问题，应至少被识别出一项").isGreaterThan(0);
+        }
     }
 
     // ============================================================
@@ -305,7 +326,11 @@ class ReviewFlowIntegrationTest {
         String reportStr = objectMapper.readTree(body).path("data").path("report").asText();
         JsonNode report = objectMapper.readTree(reportStr);
         assertThat(report.path("reviewItems").isArray()).isTrue();
-        assertThat(report.path("reviewItems")).hasSizeGreaterThan(0);
+        // 判重命中重复建设时流水线提前终止，reviewItems 为空属正确行为，跳过条数断言
+        boolean isDup = report.path("dedup").path("isDuplicate").asBoolean();
+        if (!isDup) {
+            assertThat(report.path("reviewItems")).hasSizeGreaterThan(0);
+        }
         JsonNode first = report.path("reviewItems").get(0);
         assertThat(first.has("conclusion")).isTrue();
         assertThat(first.has("detail")).isTrue();
