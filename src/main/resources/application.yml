@@ -60,6 +60,10 @@ xmps:
       header: Authorization
       # 生产环境通过环境变量或外部密钥管理服务注入
       keys: ${XMPS_API_KEYS:test-key-001,test-key-002}
+    # IP 白名单（应用层安全加固）。留空=关闭；生产通过 XMPS_ALLOWED_IPS 注入
+    # 逗号分隔的 IP / CIDR，如 10.0.0.0/8,192.168.1.0/24,203.0.113.7
+    whitelist:
+      allowed-ips: ${XMPS_ALLOWED_IPS:}
 
   # ============================================================
   # 异步任务配置

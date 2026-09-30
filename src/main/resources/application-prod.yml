@@ -24,6 +24,17 @@ spring:
     console:
       enabled: false
 
+  # ============================================================
+  # 应用层安全：IP 白名单（生产必须配置！）
+  # 仅允许政务网关 / 调用方所在网段访问评审接口。
+  # 未配置则白名单关闭（allow all）——部署前务必注入 XMPS_ALLOWED_IPS。
+  # 支持精确 IP（10.0.0.5）与 CIDR（192.168.1.0/24、10.0.0.0/8）。
+  # ============================================================
+  xmps:
+    security:
+      whitelist:
+        allowed-ips: ${XMPS_ALLOWED_IPS:}
+
 logging:
   level:
     root: WARN

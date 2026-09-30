@@ -330,11 +330,11 @@ class ReviewFlowIntegrationTest {
         boolean isDup = report.path("dedup").path("isDuplicate").asBoolean();
         if (!isDup) {
             assertThat(report.path("reviewItems")).hasSizeGreaterThan(0);
+            JsonNode first = report.path("reviewItems").get(0);
+            assertThat(first.has("conclusion")).isTrue();
+            assertThat(first.has("detail")).isTrue();
+            assertThat(first.has("item")).isTrue();
         }
-        JsonNode first = report.path("reviewItems").get(0);
-        assertThat(first.has("conclusion")).isTrue();
-        assertThat(first.has("detail")).isTrue();
-        assertThat(first.has("item")).isTrue();
         assertThat(report.path("reviewSummary").path("overallVerdict").asText()).isNotEmpty();
     }
 

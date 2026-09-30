@@ -26,7 +26,7 @@ src/main/java/com/xmps/
   llm/          LlmClient（OpenAI 兼容封装）
   rules/        RulesLoader（加载 knowledge_base/*.md 知识库）
   model/        entity（ReviewTask/AuditLog）、enums（ProjectType/TaskStatus/ReviewVerdict）、ReviewItem
-  security/     ApiKeyFilter（Authorization 头鉴权）
+  security/     ApiKeyFilter（Authorization 头鉴权）、IpWhitelistFilter（IP 白名单，应用层）
   vector/       VectorStore 接口 + NoopVectorStore（一期空实现，二期换 ChromaDB/Milvus）
 src/main/resources/
   application.yml / application-prod.yml   配置（prod 连 PostgreSQL）
@@ -179,7 +179,8 @@ docker compose up -d --build
 
 - 端口随机根因（52415）已用 `--server.port=8080` 绕过，未查明。
 - 向量库（二期）一期为空实现，判重依赖 LLM + 内置样例历史库（`history-projects.json`）。
-- 待办：IP 白名单应用层、OCR(Tesseract) 兜底、结构化《修改建议书》。
+- 待办：OCR(Tesseract) 兜底、结构化《修改建议书》。
+- 已加固：IP 白名单应用层（⑥）已实现——`xmps.security.whitelist.allowed-ips` 支持精确 IP 与 CIDR，默认关闭，生产通过 `XMPS_ALLOWED_IPS` 注入；来源 IP 解析支持 `X-Forwarded-For`/`X-Real-IP`（前置可信代理场景）。
 
 ---
 
