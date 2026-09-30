@@ -1,4 +1,7 @@
 server:
+  # 固定监听端口。注意：该值会被环境变量 SERVER_PORT（Spring relaxed binding）覆盖；
+  # 若运行环境误设 SERVER_PORT=0，Spring Boot 会进入随机端口模式（绑定 OS 分配的随机高端口）。
+  # 一律用启动参数 --server.port=8080 显式固定（run.sh 已默认带上），避免被环境变量影响。
   port: 8080
 
 spring:

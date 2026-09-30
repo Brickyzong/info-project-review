@@ -164,6 +164,7 @@ docker compose up -d --build
 ### 7.3 镜像说明
 - 多阶段构建：Maven 打包 → JRE 运行；运行镜像固定 `UTF-8` 与 `-Dfile.encoding=UTF-8`，规避中文乱码。
 - 容器内端口固定 8080，可用 `PORT` 环境变量或 `-p` 映射覆盖。
+- **端口优先级（高→低）**：命令行 `--server.port` ＞ 环境变量 `SERVER_PORT` ＞ `application.yml` 的 `server.port`。⚠️ 切勿在运行环境设置 `SERVER_PORT=0`，否则 Spring Boot 会进入随机端口模式（监听 OS 随机高端口，如 52415/56739），导致服务端口不可预期；`run.sh` 已用 `--server.port=8080` 强制固定，不受该变量影响。
 - `.dockerignore` 已排除 `data/`、`target/`、`.workbuddy/`、`.vscode/`、业务文档等，避免敏感/冗余内容进入构建上下文。
 
 ---
@@ -178,7 +179,7 @@ docker compose up -d --build
 
 ## 9. 已知限制 / 后续
 
-- 端口随机根因（52415）已用 `--server.port=8080` 绕过，未查明。
+- 端口随机根因（52415）**已查明**：非配置/代码问题，而是运行环境曾设置 `SERVER_PORT=0`（经 Spring relaxed binding 覆盖 yml 的 `server.port: 8080`）触发随机端口模式。yml 自首次提交起始终 8080、代码无端口硬编码；直接用 `java -jar`（不设该变量）即稳定 8080。现用 `--server.port=8080` 双保险固定（详见第 7.3 节）。
 - 向量库（二期）一期为空实现，判重依赖 LLM + 内置样例历史库（`history-projects.json`）。
 - 待办：结构化《修改建议书》。
 - 已加固：IP 白名单应用层（⑥）已实现——`xmps.security.whitelist.allowed-ips` 支持精确 IP 与 CIDR，默认关闭，生产通过 `XMPS_ALLOWED_IPS` 注入；来源 IP 解析支持 `X-Forwarded-For`/`X-Real-IP`（前置可信代理场景）。
