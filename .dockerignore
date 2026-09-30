@@ -1,0 +1,9 @@
+# 构建上下文排除项（不进入 docker build context）
+.git
+.workbuddy
+.vscode
+data
+target
+logs
+*.db
+*.html

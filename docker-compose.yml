@@ -1,0 +1,51 @@
+# ============================================================
+# 生产部署编排（xmps-ai-review + PostgreSQL 16）
+# 用法：
+#   export LLM_API_KEY=sk-xxx XMPS_API_KEYS=prod-key-001
+#   docker compose up -d --build
+# 说明：
+#   - xmps 服务以 prod profile 启动，连接 postgres。
+#   - 密钥通过环境变量注入（建议配合 .env 或密钥管理服务，勿提交明文）。
+#   - uploads / logs / pgdata 通过命名卷持久化。
+# ============================================================
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME:-xmps}
+      POSTGRES_USER: ${DB_USERNAME:-xmps}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-xmps_pwd}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-xmps}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  xmps:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-xmps}
+      DB_USERNAME: ${DB_USERNAME:-xmps}
+      DB_PASSWORD: ${DB_PASSWORD:-xmps_pwd}
+      LLM_API_KEY: ${LLM_API_KEY}
+      XMPS_API_KEYS: ${XMPS_API_KEYS}
+    volumes:
+      - uploads:/app/uploads
+      - logs:/app/logs
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
+  logs:

@@ -59,7 +59,7 @@ Java 17 + Spring Boot 3.3.1 + Spring Data JPA + Lombok
   - ④判重历史库样例数据 ✅（HistoryProjectStore 加载 history-projects.json；09-18）
   - ⑤类型判别升语义理解 ✅（ReviewService.classifyByLlm + classify-system/user.txt，失败降级关键词；09-30）
 - 安全加固（中优先）：⑥IP 白名单应用层（未做） ⑦评审后文件清理 ✅（ReviewService.cleanupFiles 终态清理本任务目录；09-30） ⑧OCR(Tesseract)兜底（未做）
-- 工程化交付（阻塞）：⑨结构化《修改建议书》（未做） ⑩Dockerfile+README+部署文档（未做） ⑪第一档代码/测试资产 git 提交 ✅（commit 19edd7e；**第二档本次改动尚未提交**） ⑫端口随机根因(52415，已绕过未查明)
+- 工程化交付（阻塞）：⑨结构化《修改建议书》（未做） ⑩Dockerfile+README+部署文档 ✅（Dockerfile/.dockerignore/docker-compose.yml/README.md；09-30） ⑪第一档代码/测试资产 git 提交 ✅（19edd7e）；**第二档已提交 a349801** ⑫端口随机根因(52415，已绕过未查明)
 
 注：模块地图/状态机段落已滞后（仍写 7 态机、X-API-Key、submit/status/result），属笔记描述过时，非项目债。
 
