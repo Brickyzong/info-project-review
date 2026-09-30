@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +107,11 @@ public class ReportService {
             }).toList());
         }
 
+        // 4.5 结构化《修改建议书》——仅纳入 不通过 / 存疑 项的整改清单
+        List<Map<String, Object>> remediationPlan = buildRemediationPlan(reviewItems, task);
+        report.put("remediationPlan", remediationPlan);
+        report.put("remediationPlanMarkdown", buildRemediationMarkdown(remediationPlan, task, overallVerdict));
+
         // 5. 完成时间 / 耗时（对齐文档 completed_at / duration_seconds）
         if (task.getCompletedAt() != null) {
             report.put("completed_at", ISO.format(task.getCompletedAt()));
@@ -120,5 +126,83 @@ public class ReportService {
             log.error("报告 JSON 序列化失败 — taskId={}", task.getId(), e);
             return "{\"error\": \"报告生成失败: " + e.getMessage() + "\"}";
         }
+    }
+
+    // ============================================================
+    // 结构化《修改建议书》构建
+    // ============================================================
+
+    /**
+     * 构建结构化《修改建议书》——仅纳入 不通过 / 存疑 的审查项，
+     * 形成可追踪的整改清单（严重度 / 优先级 / 责任主体 / 建议时限）。
+     * 通过项、不适用项不进入整改清单。
+     */
+    private List<Map<String, Object>> buildRemediationPlan(List<ReviewItem> reviewItems, ReviewTask task) {
+        List<Map<String, Object>> plan = new ArrayList<>();
+        if (reviewItems == null || reviewItems.isEmpty()) {
+            return plan;
+        }
+        int index = 0;
+        for (ReviewItem item : reviewItems) {
+            if (item.verdict() != ReviewVerdict.FAIL && item.verdict() != ReviewVerdict.UNCERTAIN) {
+                continue;
+            }
+            index++;
+            Map<String, Object> m = new LinkedHashMap<>();
+            boolean isFail = item.verdict() == ReviewVerdict.FAIL;
+            m.put("index", index);
+            m.put("sourceItem", item.item() != null ? item.item() : "");
+            m.put("verdict", item.verdict().name());
+            m.put("verdictLabel", item.verdict().getLabel());
+            m.put("severity", isFail ? "高" : "中");
+            m.put("priority", isFail ? "P0" : "P1");
+            m.put("problem", item.problem() != null ? item.problem() : "");
+            m.put("suggestion", item.suggestion() != null ? item.suggestion() : "");
+            m.put("reference", item.reference() != null ? item.reference() : "");
+            m.put("actionOwner", "项目建设单位");
+            m.put("suggestedDeadline", isFail ? "评审前必须完成整改" : "补充相关材料后申请复评");
+            plan.add(m);
+        }
+        return plan;
+    }
+
+    /**
+     * 将整改清单渲染为可读 Markdown，便于调用方直接展示或导成文档。
+     */
+    private String buildRemediationMarkdown(List<Map<String, Object>> plan, ReviewTask task, String overallVerdict) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 信息化项目评审·修改建议书\n\n");
+        sb.append("> 项目：").append(task.getProjectName() != null ? task.getProjectName() : task.getOriginalFilename()).append("\n");
+        sb.append("> 类型：").append(task.getProjectType() != null ? task.getProjectType().getLabel() : "未知").append("\n");
+        sb.append("> 整体结论：").append(overallVerdict).append("\n\n");
+
+        if (plan.isEmpty()) {
+            if (overallVerdict.startsWith("不通过")) {
+                sb.append("本次评审存在不通过项，但无结构化整改条目，请人工复核报告原文。\n");
+            } else if (overallVerdict.startsWith("存疑")) {
+                sb.append("本次评审存在存疑项，建议补充相关材料后申请复评。\n");
+            } else {
+                sb.append("本次评审全部通过，无需整改。\n");
+            }
+            return sb.toString();
+        }
+
+        long failCount = plan.stream().filter(p -> "FAIL".equals(p.get("verdict"))).count();
+        long uncertainCount = plan.size() - failCount;
+        sb.append("共识别需整改项 ").append(plan.size())
+                .append(" 项（不通过 ").append(failCount)
+                .append(" 项 / 存疑 ").append(uncertainCount).append(" 项）。\n\n");
+        sb.append("## 整改清单\n\n");
+        for (Map<String, Object> p : plan) {
+            sb.append("### ").append(p.get("index")).append(". ")
+                    .append(p.get("sourceItem")).append(" 〔").append(p.get("verdictLabel")).append("〕\n");
+            sb.append("- **严重度**：").append(p.get("severity")).append("（").append(p.get("priority")).append("）\n");
+            sb.append("- **问题描述**：").append(p.get("problem")).append("\n");
+            sb.append("- **修改建议**：").append(p.get("suggestion")).append("\n");
+            sb.append("- **依据条款**：").append(p.get("reference")).append("\n");
+            sb.append("- **责任主体**：").append(p.get("actionOwner")).append("\n");
+            sb.append("- **建议时限**：").append(p.get("suggestedDeadline")).append("\n\n");
+        }
+        return sb.toString();
     }
 }

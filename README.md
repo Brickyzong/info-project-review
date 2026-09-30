@@ -192,4 +192,5 @@ docker compose up -d --build
 - `a349801` 第二档：独立规则引擎、LLM 语义判别、文件清理与测试修复
 - `06ae2e8` 工程化交付：Dockerfile / docker-compose / README（部署阻塞项 ⑩）
 - `9477352` 安全加固：应用层 IP 白名单（⑥）
-- （待提交）OCR 兜底（⑧）：OcrService + OcrProperties + 单元测试
+- `8f7cbea` 安全增强：OCR(Tesseract) 兜底（⑧）
+- （待提交）结构化《修改建议书》（⑨）：ReportService 新增 remediationPlan + remediationPlanMarkdown + 单元测试
