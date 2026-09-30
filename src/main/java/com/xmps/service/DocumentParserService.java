@@ -1,5 +1,6 @@
 package com.xmps.service;
 
+import com.xmps.config.OcrProperties;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -21,6 +22,14 @@ import java.nio.file.Path;
 public class DocumentParserService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentParserService.class);
+
+    private final OcrService ocrService;
+    private final OcrProperties ocrProperties;
+
+    public DocumentParserService(OcrService ocrService, OcrProperties ocrProperties) {
+        this.ocrService = ocrService;
+        this.ocrProperties = ocrProperties;
+    }
 
     /**
      * 解析文件提取全文文本。
@@ -50,7 +59,17 @@ public class DocumentParserService {
                 throw new IllegalArgumentException("不支持的文件格式: " + filename);
             }
 
-            // 空文本检测——扫描件 / 图片型 PDF 的兜底
+            // OCR 兜底：主解析文本过少（扫描件 / 图片型文档）时尝试 Tesseract 识别
+            if (text.trim().length() < ocrProperties.getMinTextLength() && ocrService.isAvailable()) {
+                log.warn("主解析文本过少({}字)，尝试 OCR 兜底 — filename={}", text.trim().length(), filename);
+                String ocr = ocrService.ocrFile(Path.of(filePath), filename);
+                if (!ocr.isBlank()) {
+                    log.info("OCR 兜底补充 {} 字 — filename={}", ocr.length(), filename);
+                    text = ocr;
+                }
+            }
+
+            // 主解析与 OCR 均无法提取文本——视为扫描件 / 图片型文档，硬失败（解析是唯一硬失败）
             if (text.isEmpty()) {
                 log.warn("文档内容为空，可能是扫描件或图片型文档 — filename={}", filename);
                 throw new RuntimeException(

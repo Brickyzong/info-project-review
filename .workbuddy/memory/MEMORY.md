@@ -58,7 +58,7 @@ Java 17 + Spring Boot 3.3.1 + Spring Data JPA + Lombok
   - ③PromptTemplates 外置 ✅（resources/prompt-templates/*.txt，{{KEY}} 双花括号渲染；09-18）
   - ④判重历史库样例数据 ✅（HistoryProjectStore 加载 history-projects.json；09-18）
   - ⑤类型判别升语义理解 ✅（ReviewService.classifyByLlm + classify-system/user.txt，失败降级关键词；09-30）
-- 安全加固（中优先）：⑥IP 白名单应用层 ✅（IpWhitelistFilter + IpWhitelistProperties，order=0 先于 ApiKeyFilter；支持精确 IP/CIDR、X-Forwarded-For 代理解析、排除探针路径；默认关闭，生产 XMPS_ALLOWED_IPS 注入；09-30） ⑦评审后文件清理 ✅（ReviewService.cleanupFiles 终态清理本任务目录；09-30） ⑧OCR(Tesseract)兜底（未做）
+- 安全加固（中优先）：⑥IP 白名单应用层 ✅（IpWhitelistFilter + IpWhitelistProperties，order=0 先于 ApiKeyFilter；支持精确 IP/CIDR、X-Forwarded-For 代理解析、排除探针路径；默认关闭，生产 XMPS_ALLOWED_IPS 注入；09-30） ⑦评审后文件清理 ✅（ReviewService.cleanupFiles 终态清理本任务目录；09-30） ⑧OCR(Tesseract)兜底 ✅（OcrService 调系统 tesseract CLI；主解析文本<min-text-length 先尝试 PDF 逐页/docx 内嵌图片识别，仍为空才硬失败；未安装自动关闭不抛异常；09-30）
 - 工程化交付（阻塞）：⑨结构化《修改建议书》（未做） ⑩Dockerfile+README+部署文档 ✅（Dockerfile/.dockerignore/docker-compose.yml/README.md；09-30） ⑪第一档代码/测试资产 git 提交 ✅（19edd7e）；**第二档已提交 a349801** ⑫端口随机根因(52415，已绕过未查明)
 
 注：模块地图/状态机段落已滞后（仍写 7 态机、X-API-Key、submit/status/result），属笔记描述过时，非项目债。

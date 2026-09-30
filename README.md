@@ -22,7 +22,7 @@ src/main/java/com/xmps/
   controller/   ReviewController（提交/查询/取消）、HealthController（/health）
   service/      ReviewService（流水线编排）、RulesEngine（确定性二次校验）
                ConstructionReview/MaintenanceReview（建设/运维审查）、DedupService（判重）
-               DocumentParserService、ReportService、CallbackService、FileStorageService、AuditService
+               DocumentParserService、OcrService（Tesseract OCR 兜底）、ReportService、CallbackService、FileStorageService、AuditService
   llm/          LlmClient（OpenAI 兼容封装）
   rules/        RulesLoader（加载 knowledge_base/*.md 知识库）
   model/        entity（ReviewTask/AuditLog）、enums（ProjectType/TaskStatus/ReviewVerdict）、ReviewItem
@@ -76,6 +76,7 @@ java -Dfile.encoding=UTF-8 -jar target/xmps-ai-review-1.0.0-SNAPSHOT.jar --serve
 | `xmps.async.*` | 异步线程池（core/max/queue） | — |
 | `xmps.callback.*` | 回调重试（max-retries / retry-intervals / initial-delay） | — |
 | `xmps.vector.enabled` | 向量库开关（一期 false） | — |
+| `xmps.ocr.enabled` / `tesseract-path` / `lang` / `min-text-length` | OCR 兜底（扫描件/图片型文档）：是否启用 / tesseract 路径 / 语言包 / 主解析低于该字数才触发 | `XMPS_OCR_ENABLED` / `XMPS_TESSERACT_PATH` |
 | `spring.datasource.*` | 数据库连接（prod 用环境变量） | `DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD` |
 
 激活方式：dev 为默认；生产加 `--spring.profiles.active=prod`（ddl-auto 为 `validate`，防自动改表）。
@@ -179,8 +180,9 @@ docker compose up -d --build
 
 - 端口随机根因（52415）已用 `--server.port=8080` 绕过，未查明。
 - 向量库（二期）一期为空实现，判重依赖 LLM + 内置样例历史库（`history-projects.json`）。
-- 待办：OCR(Tesseract) 兜底、结构化《修改建议书》。
+- 待办：结构化《修改建议书》。
 - 已加固：IP 白名单应用层（⑥）已实现——`xmps.security.whitelist.allowed-ips` 支持精确 IP 与 CIDR，默认关闭，生产通过 `XMPS_ALLOWED_IPS` 注入；来源 IP 解析支持 `X-Forwarded-For`/`X-Real-IP`（前置可信代理场景）。
+- 已增强：OCR 兜底（⑧）已实现——`OcrService` 调用系统 `tesseract` CLI，主解析文本 < `min-text-length`(默认50) 时先尝试 PDF 逐页 / docx 内嵌图片识别，仍为空才硬失败；tesseract 未安装时自动关闭、绝不抛异常。生产需安装 `tesseract` 及 `chi_sim` 语言包。
 
 ---
 
@@ -188,3 +190,6 @@ docker compose up -d --build
 
 - `19edd7e` 第一档：业务实现偏差三项改造及接口契约资产入库
 - `a349801` 第二档：独立规则引擎、LLM 语义判别、文件清理与测试修复
+- `06ae2e8` 工程化交付：Dockerfile / docker-compose / README（部署阻塞项 ⑩）
+- `9477352` 安全加固：应用层 IP 白名单（⑥）
+- （待提交）OCR 兜底（⑧）：OcrService + OcrProperties + 单元测试
