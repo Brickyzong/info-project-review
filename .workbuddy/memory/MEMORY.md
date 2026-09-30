@@ -63,12 +63,14 @@ Java 17 + Spring Boot 3.3.1 + Spring Data JPA + Lombok
 
 注：模块地图/状态机段落已滞后（仍写 7 态机、X-API-Key、submit/status/result），属笔记描述过时，非项目债。
 
-## 版本控制（2026-09-09 发现，此前一直没用）
-项目**有 git 仓库**，基线提交 `5a94df3 init:信息化项目评审初始代码与文档`，
-之后是 `28bdd0e 移除大文件`、`65af092 移除项目内业务文档文件`。
-**第一档（接口契约）改动全部未提交**，因此 `git diff` 工作区 == 第一档改动全集。
-核对改动一律用 `git diff --stat -- src/`，不要靠记忆复述。
-详见 `2026-09-09.md`（含逐文件的准确改动清单）。
+## 版本控制
+项目 **git 仓库**：远程 `https://github.com/Brickyzong/info-project-review.git`（origin/main，已 push）。
+基线 `5a94df3 init`，之后 `28bdd0e 移除大文件`、`65af092 移除项目内业务文档文件`。
+**全部改动已提交并 push 到 origin/main**（2026-09-30 收尾）：第二档改进及剩余债 ⑥⑦⑧⑨⑩⑫ 共 6 笔提交
+`a349801`/`06ae2e8`/`9477352`/`8f7cbea`/`016f952`/`7d84675` 已 fast-forward 上远程（至 `7d84675`）。
+核对改动：`git diff --stat -- src/`（不要靠记忆复述）。
+⚠️ **push 注意**：`credential.helper=helper-selector` 在写操作会弹交互选择器，导致 non-interactive 环境挂起（曾卡 9 分钟）；
+用 `GIT_TERMINAL_PROMPT=0 git push` 跳过终端提示、走缓存凭证即可（实测 17s 完成）。
 
 ## 运行环境（本机没装 JDK / Maven，用隔离目录）
 - JDK 17.0.20.1：`C:\Users\zongwenyu\.workbuddy\binaries\java\jdk-17.0.20.1+1`
@@ -111,8 +113,10 @@ mvn.cmd -s "C:/Users/zongwenyu/.workbuddy/binaries/maven/settings.xml" test -Dte
 传 Git Bash 的 `/g/...` 会报 `Unable to access jarfile`。run.sh 里已区分
 `JAR_WIN`（给 java.exe）与 `JAR_BASH`（给 bash 做 `-f` 判断）。
 
-**未解之谜**：application.yml 写的 `server.port: 8080`，jar 内也是 8080，环境变量也没设，
-但直接 `java -jar` 会起随机端口（如 52415）。已用启动参数 `--server.port=8080` 强制固定，根因未查明。
+**端口随机根因（已查明，09-30）**：yml 自 `5a94df3` 起始终 `server.port: 8080`、代码无端口硬编码、jar 内 yml 打包后确为 8080；
+但运行环境若设 `SERVER_PORT=0`（Spring relaxed binding 覆盖 yml 字面量），Spring Boot 进入随机端口模式
+（实测复现绑定 56739 随机高端口）。直接 `java -jar` 稳定 8080 的前提是 `SERVER_PORT` 为空；
+`run.sh` 用 `--server.port=8080` 显式固定即双保险。生产部署切勿设 `SERVER_PORT=0`。
 
 ## 讲解偏好（用户 2026-09-03 明确反馈，后续照此执行）
 - **按模块 / 文件讲，不要逐行讲**：不要出现"第 N 行做了什么"这种粒度，用户会找不到也记不住
