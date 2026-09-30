@@ -48,10 +48,15 @@ Java 17 + Spring Boot 3.3.1 + Spring Data JPA + Lombok
 - 敏感值走环境变量：`LLM_API_KEY`、`XMPS_API_KEYS`、`DB_USERNAME`、`DB_PASSWORD`
 - prod 激活：`--spring.profiles.active=prod`；`ddl-auto` dev=update / prod=validate（防生产自动改表）
 
-## 已知债（对照 C-技术方案V2.0 三/四/五/七章核对，详见 2026-09-03 日志）
-接口契约不符：①提交路径/字段(应为 POST /api/v1/review/tasks + project_name/project_type/request_id；现为 /submit 仅 file+callbackUrl) ②鉴权头应为 Authorization:Bearer(现为 X-API-Key) ③task_id 应为 rev_YYYYMMDD_NNN(现为 UUID) ④缺 progress 三元组 + request_id 唯一索引幂等 + X-Request-ID ⑤状态枚举命名(queued/parsing/reviewing vs PENDING/DOC_PARSING/...) ⑥回调重试应 10/30/60s×3(现 60s×5) ⑦表名/字段(project_subtype/progress_*/error_message/retry_count/completed_at/result_json/result_json) ⑧review_items 字段名(conclusion/detail vs verdict/problem)。
-其他缺失：独立规则引擎(规则引擎二次校验)、ConstructionReview/MaintenanceReview 拆分、PromptTemplates、IP 白名单应用层、文件评审后清理、OCR(Tesseract)兜底、cancel 接口、结构化《修改建议书》、Dockerfile+README+部署文档；判重无真实历史库(M4 要求内置样例库)、类型判别降级为关键词(文档要求语义理解)。
-~~缺测试~~ → 已补齐：`ReviewFlowIntegrationTest.java`，10 个端到端用例，2026-09-03 全绿；判重 `70%` 格式化 BUG 已修。
+## 已知债（对照 C-技术方案V2.0 三/四/五/七章核对）
+**第一档 接口契约不符（①②③④⑤⑥⑦⑧）— 已完成并验证**：2026-09-03~09-09 改造，16 文件 +395/-217 行，端到端 11/11 全绿；cancel 接口一并完成。详见 `2026-09-09.md`。
+
+**第二档 待改进（12 项，未做）**，按优先级：
+- 业务实现偏差（高优先）：①独立规则引擎二次校验 ②ConstructionReview/MaintenanceReview 拆分 ③PromptTemplates 外置 ④判重历史库(M4 内置样例库) ⑤类型判别升语义理解(现降级关键词)
+- 安全加固（中优先）：⑥IP 白名单应用层 ⑦评审后文件清理 ⑧OCR(Tesseract)兜底
+- 工程化交付（阻塞）：⑨结构化《修改建议书》 ⑩Dockerfile+README+部署文档 ⑪第一档代码/测试资产 git 提交 ⑫端口随机根因(52415，已绕过未查明)
+
+注：模块地图/状态机段落已滞后（仍写 7 态机、X-API-Key、submit/status/result），属笔记描述过时，非项目债。
 
 ## 版本控制（2026-09-09 发现，此前一直没用）
 项目**有 git 仓库**，基线提交 `5a94df3 init:信息化项目评审初始代码与文档`，

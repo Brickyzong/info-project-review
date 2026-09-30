@@ -30,13 +30,18 @@ public class DedupService {
     private final RulesLoader rulesLoader;
     private final VectorStore vectorStore;
     private final ObjectMapper objectMapper;
+    private final PromptTemplateLoader promptTemplateLoader;
+    private final HistoryProjectStore historyProjectStore;
 
     public DedupService(LlmClient llmClient, RulesLoader rulesLoader,
-                        VectorStore vectorStore, ObjectMapper objectMapper) {
+                        VectorStore vectorStore, ObjectMapper objectMapper,
+                        PromptTemplateLoader promptTemplateLoader, HistoryProjectStore historyProjectStore) {
         this.llmClient = llmClient;
         this.rulesLoader = rulesLoader;
         this.vectorStore = vectorStore;
         this.objectMapper = objectMapper;
+        this.promptTemplateLoader = promptTemplateLoader;
+        this.historyProjectStore = historyProjectStore;
     }
 
     /**
@@ -67,50 +72,20 @@ public class DedupService {
      * 构造判重 system prompt
      */
     private String buildDedupSystemPrompt() {
-        return """
-        你是泰兴市政务信息化项目判重智能体。你的职责是判断申报项目是否与历史项目存在重复建设。
-
-        %s
-
-        ## 判重要求
-
-        1. 从方案中提取项目的【核心建设内容】【功能点】【服务对象】【技术路线】
-        2. 分析项目是否存在与历史项目"高度相似"的情况
-        3. 输出 JSON 格式结果
-
-        ## 判断标准
-
-        - 高度相似：业务场景相同，功能重叠 > 70%%，判定为"重复建设"
-        - 部分重叠：存在相似项目但不完全覆盖，标注并提示关注
-        - 无重叠：未发现类似历史项目
-
-        ## 输出格式（严格 JSON，不要 markdown 包裹）
-
-        {
-          "duplicate": true/false,
-          "description": "项目核心建设内容摘要（100字内）",
-          "similarProjects": [{"name": "项目名", "similarity": "高/中/低", "overlap": "重叠描述"}],
-          "conclusion": "最终判重结论"
-        }
-        """.formatted(rulesLoader.get("05-项目类型判定规则.md") != null
+        String rules = rulesLoader.get("05-项目类型判定规则.md") != null
                 ? rulesLoader.get("05-项目类型判定规则.md")
-                : rulesLoader.getConstructionRules());
-    }
-
-    private String buildDedupUserPrompt(String documentText, ProjectType type) {
-        return """
-        ## 项目类型
-        %s
-
-        ## 方案文档内容
-        %s
-
-        请按照判重要求进行分析。
-        """.formatted(type != null ? type.getLabel() : "未知", documentText);
+                : rulesLoader.getConstructionRules();
+        return promptTemplateLoader.render("dedup-system", Map.of(
+                "RULES", rules,
+                "HISTORY", historyProjectStore.getContext()
+        ));
     }
 
     private String buildDedupUserPrompt(String documentText, ReviewTask task) {
-        return buildDedupUserPrompt(documentText, task.getProjectType());
+        return promptTemplateLoader.render("dedup-user", Map.of(
+                "PROJECT_TYPE", task.getProjectType() != null ? task.getProjectType().getLabel() : "未知",
+                "DOCUMENT", documentText
+        ));
     }
 
     /**

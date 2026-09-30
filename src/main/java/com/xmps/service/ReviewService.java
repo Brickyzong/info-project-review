@@ -1,6 +1,7 @@
 package com.xmps.service;
 
 import com.xmps.model.entity.ReviewTask;
+import com.xmps.model.ReviewItem;
 import com.xmps.model.enums.ProjectType;
 import com.xmps.model.enums.ReviewVerdict;
 import com.xmps.model.enums.TaskStatus;
@@ -42,7 +43,8 @@ public class ReviewService {
     private final FileStorageService fileStorageService;
     private final DocumentParserService documentParserService;
     private final DedupService dedupService;
-    private final ReviewEngine reviewEngine;
+    private final ConstructionReview constructionReview;
+    private final MaintenanceReview maintenanceReview;
     private final ReportService reportService;
     private final CallbackService callbackService;
     private final AuditService auditService;
@@ -51,7 +53,8 @@ public class ReviewService {
                          FileStorageService fileStorageService,
                          DocumentParserService documentParserService,
                          DedupService dedupService,
-                         ReviewEngine reviewEngine,
+                         ConstructionReview constructionReview,
+                         MaintenanceReview maintenanceReview,
                          ReportService reportService,
                          CallbackService callbackService,
                          AuditService auditService) {
@@ -59,7 +62,8 @@ public class ReviewService {
         this.fileStorageService = fileStorageService;
         this.documentParserService = documentParserService;
         this.dedupService = dedupService;
-        this.reviewEngine = reviewEngine;
+        this.constructionReview = constructionReview;
+        this.maintenanceReview = maintenanceReview;
         this.reportService = reportService;
         this.callbackService = callbackService;
         this.auditService = auditService;
@@ -147,18 +151,20 @@ public class ReviewService {
             }
 
             // ============================================================
-            // Step 5: 规则审查 (M5 — ReviewEngine)
+            // Step 5: 规则审查（ConstructionReview / MaintenanceReview）
             // ============================================================
             if (isCancelled(task)) return;
             updateStatus(task, TaskStatus.REVIEWING, "正在执行规则审查...", 4, TOTAL_STEPS);
-            List<ReviewEngine.ReviewItem> reviewItems;
+            List<ReviewItem> reviewItems;
             try {
-                reviewItems = reviewEngine.review(documentText, task);
+                reviewItems = task.getProjectType() == ProjectType.OPERATION
+                        ? maintenanceReview.review(documentText, task)
+                        : constructionReview.review(documentText, task);
                 auditService.log(task.getId(), "REVIEW",
                         "审查完成, items=" + reviewItems.size(), true, null, clientIp, requestId);
             } catch (Exception e) {
                 log.error("规则审查失败 — taskId={}, error={}", task.getId(), e.getMessage(), e);
-                reviewItems = List.of(new ReviewEngine.ReviewItem(
+                reviewItems = List.of(new ReviewItem(
                         "审查异常", ReviewVerdict.UNCERTAIN,
                         "审查引擎异常: " + e.getMessage(), "请人工复核", ""));
                 auditService.log(task.getId(), "REVIEW",

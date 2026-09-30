@@ -3,6 +3,7 @@ package com.xmps.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xmps.model.entity.ReviewTask;
+import com.xmps.model.ReviewItem;
 import com.xmps.model.enums.ReviewVerdict;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +39,7 @@ public class ReportService {
      * @param documentText 方案原文（用于提取项目名称等基本信息）
      */
     public String generate(ReviewTask task, DedupService.DedupResult dedupResult,
-                           List<ReviewEngine.ReviewItem> reviewItems, String documentText) {
+                           List<ReviewItem> reviewItems, String documentText) {
         Map<String, Object> report = new LinkedHashMap<>();
 
         // 1. 基本信息
